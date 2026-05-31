@@ -6,14 +6,14 @@ from aiogram.filters import Command
 from datetime import datetime
 from aiohttp import web
 
-# НАСТРОЙКА: Твои данные
+# НАСТРОЙКА: Твои данные уже внутри
 TOKEN = "8626005892:AAGGhDL-IgQvo-Jw2Q2jrU6YIRqRpx8KrGQ"
 ADMIN_ID = 977553639
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# База данных
+# Подключаем базу данных SQLite
 conn = sqlite3.connect("daily_cm.db")
 cursor = conn.cursor()
 cursor.execute('''
@@ -42,6 +42,7 @@ async def cmd_daily(message: types.Message):
         await message.reply("❌ Ты уже крутил сегодня! Купи еще одну попытку за 5 см через /shop")
         return
 
+    # НАКРУТКА: Тебе всегда плюс, остальным — рандом
     if user_id == ADMIN_ID:
         cm = random.randint(15, 20)
     else:
@@ -58,7 +59,7 @@ async def cmd_daily(message: types.Message):
     conn.commit()
 
     if cm > 0:
-        await message.reply(f"📈 Твой результат сегодня: +{cm} см! Всего: {new_score} см.")
+        await message.reply(f"📈 Твой result сегодня: +{cm} см! Всего: {new_score} см.")
     elif cm == 0:
         await message.reply(f"😐 Ничего не изменилось: 0 см. Всего: {new_score} см.")
     else:
@@ -99,18 +100,18 @@ async def cmd_shop(message: types.Message):
     new_score = user[0] - 5
     cursor.execute('UPDATE users SET score = ?, last_use = "" WHERE chat_id = ? AND user_id = ?', (new_score, chat_id, user_id))
     conn.commit()
-    await message.reply(f"🛒 Успешная покупка! Списано 5 см (Осталось: {new_score} см).\n🔥 Пиши `/daily`!")
+    await message.reply(f"🛒 Успешная покупка! Списано 5 см (Осталось: {new_score} см).\n🔥 Твой таймер сброшен, пиши `/daily`!")
 
-# ОБМАНКА ДЛЯ RENDER (Запуск мини-сайта)
+# ОБМАНКА ДЛЯ RENDER (Мини-вебсервер)
 async def handle(request):
     return web.Response(text="Bot is running!")
 
 async def main():
-    # Запускаем сайт на порту 10000, который требует Render
     app = web.Application()
     app.router.add_get('/', handle)
     runner = web.AppRunner(app)
     await runner.setup()
+    # Слушаем порт 10000, который так сильно просит Render
     site = web.TCPSite(runner, '0.0.0.0', 10000)
     asyncio.create_task(site.start())
     
