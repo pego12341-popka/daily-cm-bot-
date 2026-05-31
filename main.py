@@ -4,9 +4,9 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from datetime import datetime
 
-# НАСТРОЙКА: Вставь сюда свои данные
+# НАСТРОЙКА: Твои данные уже внутри!
 TOKEN = "8626005892:AAGGhDL-IgQvo-Jw2Q2jrU6YIRqRpx8KrGQ"
-ADMIN_ID =  977553639 # СЮДА_ВСТАВЬ_СВОЙ_ID (например: 543216789)
+ADMIN_ID = 977553639
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
@@ -38,7 +38,7 @@ async def cmd_daily(message: types.Message):
     user = cursor.fetchone()
 
     if user and user[1] == today:
-        await message.reply("❌ Ты уже крутил сегодня! Приходи завтра.")
+        await message.reply("❌ Ты уже крутил сегодня! Купи еще одну попытку за 5 см через /shop")
         return
 
     # НАКРУТКА: Если пишет админ — всегда даем жесткий плюс, остальным — рандом
@@ -82,6 +82,37 @@ async def cmd_top(message: types.Message):
         text += f"{i}. {leader[0]} — {leader[1]} см\n"
     
     await message.reply(text, parse_mode="Markdown")
+
+# КОМАНДА МАГАЗИНА
+@dp.message(Command("shop"))
+async def cmd_shop(message: types.Message):
+    chat_id = message.chat.id
+    user_id = message.from_user.id
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    cursor.execute("SELECT score, last_use FROM users WHERE chat_id = ? AND user_id = ?", (chat_id, user_id))
+    user = cursor.fetchone()
+
+    # Если юзера нет в базе или у него меньше 5 см
+    if not user or user[0] < 5:
+        await message.reply("❌ У тебя не хватает см! Нужно минимум 5 см на балансе, чтобы купить доп. спин.")
+        return
+
+    # Проверяем, нужно ли вообще покупать (если он сегодня еще не крутил, то тратить см нет смысла)
+    if user[1] != today:
+        await message.reply("❓ Ты сегодня еще даже не крутил бесплатный `/daily`! Сначала используй его.")
+        return
+
+    # Списываем 5 см и стираем дату последнего использования (last_use ставим пустым)
+    new_score = user[0] - 5
+    cursor.execute('''
+        UPDATE users 
+        SET score = ?, last_use = "" 
+        WHERE chat_id = ? AND user_id = ?
+    ''', (new_score, chat_id, user_id))
+    conn.commit()
+
+    await message.reply(f"🛒 Успешная покупка! Списано 5 см (Осталось: {new_score} см).\n🔥 Твой ежедневный таймер сброшен, можешь снова писать `/daily`!")
 
 if __name__ == "__main__":
     dp.run_polling(bot)
