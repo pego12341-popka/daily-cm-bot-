@@ -3,14 +3,15 @@ import sqlite3
 import asyncio
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from datetime import datetime
 from aiohttp import web
 
 # ====================================================
-# НАСТРОЙКА: Твои данные уже внутри
+# НАСТРОЙКА: Твои данные
 # ====================================================
 TOKEN = "8626005892:AAGGhDL-IgQvo-Jw2Q2jrU6YIRqRpx8KrGQ"
-ADMIN_IDS = [977553639]  # Твой ID. Можно добавлять друзей через запятую
+ADMIN_IDS = [977553639]  # Твой ID
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
@@ -38,6 +39,9 @@ try:
 except sqlite3.OperationalError:
     pass
 
+# Временное хранилище для текста рассылки админа (чтобы бот помнил, что отправлять после нажатия кнопки)
+admin_messages = {}
+
 @dp.message(Command("daily"))
 async def cmd_daily(message: types.Message):
     chat_id = message.chat.id
@@ -52,20 +56,15 @@ async def cmd_daily(message: types.Message):
         await message.reply("❌ Ты уже крутил сегодня! Купи еще одну попытку за 5 см через /shop")
         return
 
-    # Логика выдачи см
     if user and user[2] is not None:
-        # Если админ заказал число (себе или кому-то)
         cm = user[2]
     elif user_id in ADMIN_IDS:
-        # Обычная админская накрутка в плюс
         cm = random.randint(15, 20)
     else:
-        # Обычный рандом для участников группы
         cm = random.randint(-5, 20)
 
     new_score = (user[0] if user else 0) + cm
 
-    # Записываем данные и сбрасываем кастомное число обратно в NULL, чтобы сработало один раз
     cursor.execute('''
         INSERT INTO users (chat_id, user_id, username, score, last_use, next_custom_cm)
         VALUES (?, ?, ?, ?, ?, NULL)
@@ -118,36 +117,25 @@ async def cmd_shop(message: types.Message):
     conn.commit()
     await message.reply(f"🛒 Успешная покупка! Списано 5 см (Осталось: {new_score} см).\n🔥 Твой таймер сброшен, пиши `/daily`!")
 
-# СЕКРЕТНАЯ УЛУЧШЕННАЯ КОМАНДА В ЛИЧКЕ БОТА
 @dp.message(Command("set"))
 async def cmd_set_cm(message: types.Message):
     user_id = message.from_user.id
-
-    # 1. Проверяем, админ ли это
     if user_id not in ADMIN_IDS:
         return
-
-    # 2. Проверяем, что админ пишет это в ЛИЧКЕ бота, а не в группе
     if message.chat.type != "private":
-        await message.reply("❌ Эту команду нужно писать мне в личку, чтобы никто в группе не спалил!")
+        await message.reply("❌ Эту команду нужно писать мне в личку!")
         return
 
     args = message.text.split()
-    
-    # Вариант 1: Накрутка СЕБЕ (/set 50)
     if len(args) == 2:
         try:
             chosen_cm = int(args[1])
         except ValueError:
             await message.reply("❌ Введи правильное число!")
             return
-
         cursor.execute('UPDATE users SET next_custom_cm = ? WHERE user_id = ?', (chosen_cm, user_id))
         conn.commit()
-        await message.reply(f"🤫 Себе настроил! При следующем прокруте `/daily` тебе выпадет: {chosen_cm} см.")
-        return
-
-    # Вариант 2: Накрутка ДРУГОМУ УЧАСТНИКУ (/set @username 100)
+        await message.reply(f"🤫 Себе настроил! Выпадет: {chosen_cm} см.")
     elif len(args) == 3:
         target_username = args[1].replace("@", "").strip()
         try:
@@ -155,25 +143,88 @@ async def cmd_set_cm(message: types.Message):
         except ValueError:
             await message.reply("❌ Введи правильное число!")
             return
-
-        # Ищем челика в базе данных по его юзернейму
         cursor.execute('SELECT user_id FROM users WHERE LOWER(username) = LOWER(?)', (target_username,))
         target = cursor.fetchone()
-
         if not target:
-            await message.reply(f"❌ Юзера @{target_username} пока нет в моей базе данных. Он должен хотя бы один раз написать любую команду боту в группе (например /top или /daily), чтобы я его запомнил!")
+            await message.reply(f"❌ Юзера @{target_username} нет в базе данных.")
             return
-
-        target_id = target[0]
-        # Обновляем ему кастомное число
-        cursor.execute('UPDATE users SET next_custom_cm = ? WHERE user_id = ?', (chosen_cm, target_id))
+        cursor.execute('UPDATE users SET next_custom_cm = ? WHERE user_id = ?', (chosen_cm, target[0]))
         conn.commit()
-        await message.reply(f"🤫 Сделано! Подкрутил для @{target_username}. Ему при следующем `/daily` выпадет ровно: {chosen_cm} см.")
+        await message.reply(f"🤫 Подкрутил для @{target_username}: {chosen_cm} см.")
+
+# ====================================================
+# НОВАЯ КОМАНДА /mes ДЛЯ ОТПРАВКИ СООБЩЕНИЙ В ГРУППЫ
+# ====================================================
+@dp.message(Command("mes"))
+async def cmd_send_message_menu(message: types.Message):
+    user_id = message.from_user.id
+
+    if user_id not in ADMIN_IDS:
+        return
+    if message.chat.type != "private":
+        await message.reply("❌ Пиши эту команду только мне в личку!")
         return
 
-    else:
-        await message.reply("Неправильный формат!\n\nПиши:\n`/set <число>` — себе\n`/set @username <число>` — другому")
+    # Получаем текст сообщения, который идет после команды /mes
+    text_to_send = message.text[5:].strip() # Пропускаем "/mes "
+    if not text_to_send:
+        await message.reply("Использование: `/mes <твой текст>`\nНапример: `/mes Всем привет от админа!`")
+        return
 
+    # Запоминаем текст, который админ хочет отправить
+    admin_messages[user_id] = text_to_send
+
+    # Ищем уникальные chat_id (группы) из нашей базы данных
+    cursor.execute("SELECT DISTINCT chat_id FROM users WHERE chat_id < 0")
+    chats = cursor.fetchall()
+
+    if not chats:
+        await message.reply("❌ В базе данных пока нет ни одной группы. Бот должен быть добавлен в группу, и там кто-то должен написать команду!")
+        return
+
+    # Создаем интерактивное меню с кнопками
+    keyboard = InlineKeyboardBuilder()
+    
+    for count, chat in enumerate(chats, 1):
+        chat_id = chat[0]
+        # Так как Телеграм без специальных запросов не выдает красивое имя группы в личке,
+        # мы просто делаем кнопку "Группа №..." с её ID, чтобы бот точно знал куда слать.
+        keyboard.button(
+            text=f"Группа {count} (ID: {chat_id})", 
+            callback_data=f"send_to_{chat_id}"
+        )
+    
+    keyboard.adjust(1) # Кнопки будут идти в один столбик
+    await message.reply("👇 Выбери группу, куда бот должен отправить это сообщение:", reply_markup=keyboard.as_markup())
+
+# Обработка нажатия на кнопку выбора группы
+@dp.callback_query(lambda c: c.data.startswith('send_to_'))
+async def process_send_callback(callback_query: types.CallbackQuery):
+    user_id = callback_query.from_user.id
+    
+    if user_id not in ADMIN_IDS:
+        await callback_query.answer("У тебя нет прав!", show_alert=True)
+        return
+
+    # Извлекаем chat_id из даты кнопки
+    target_chat_id = int(callback_query.data.replace("send_to_", ""))
+    
+    # Берем сохраненный текст админа
+    text_to_send = admin_messages.get(user_id)
+
+    if not text_to_send:
+        await callback_query.message.edit_text("❌ Ошибка: текст сообщения затерялся. Напиши команду `/mes <текст>` заново.")
+        return
+
+    try:
+        # Отправляем сообщение в выбранную группу от лица бота
+        await bot.send_message(chat_id=target_chat_id, text=text_to_send)
+        # Обновляем меню в личке админа, подтверждая успех
+        await callback_query.message.edit_text(f"✅ Сообщение успешно отправлено в чат `{target_chat_id}`!\n\nТекст: {text_to_send}")
+        # Очищаем память
+        admin_messages.pop(user_id, None)
+    except Exception as e:
+         await callback_query.message.edit_text(f"❌ Не удалось отправить сообщение. Возможно, бота кикнули из этой группы.\nОшибка: {e}")
 
 # ОБМАНКА ДЛЯ RENDER
 async def handle(request):
