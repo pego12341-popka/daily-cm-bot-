@@ -1,17 +1,19 @@
 import random
 import sqlite3
+import asyncio
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from datetime import datetime
+from aiohttp import web
 
-# НАСТРОЙКА: Твои данные уже внутри!
+# НАСТРОЙКА: Твои данные
 TOKEN = "8626005892:AAGGhDL-IgQvo-Jw2Q2jrU6YIRqRpx8KrGQ"
 ADMIN_ID = 977553639
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# Подключаем базу данных SQLite (она создастся автоматически)
+# База данных
 conn = sqlite3.connect("daily_cm.db")
 cursor = conn.cursor()
 cursor.execute('''
@@ -33,7 +35,6 @@ async def cmd_daily(message: types.Message):
     username = message.from_user.username or message.from_user.first_name
     today = datetime.now().strftime("%Y-%m-%d")
 
-    # Проверяем, играл ли юзер сегодня в этом чате
     cursor.execute("SELECT score, last_use FROM users WHERE chat_id = ? AND user_id = ?", (chat_id, user_id))
     user = cursor.fetchone()
 
@@ -41,15 +42,13 @@ async def cmd_daily(message: types.Message):
         await message.reply("❌ Ты уже крутил сегодня! Купи еще одну попытку за 5 см через /shop")
         return
 
-    # НАКРУТКА: Если пишет админ — всегда даем жесткий плюс, остальным — рандом
     if user_id == ADMIN_ID:
-        cm = random.randint(15, 20)  # Тебе всегда выпадет от 15 до 20 см
+        cm = random.randint(15, 20)
     else:
-        cm = random.randint(-5, 20)  # Обычным юзерам от -5 до 20 см
+        cm = random.randint(-5, 20)
 
     new_score = (user[0] if user else 0) + cm
 
-    # Обновляем или добавляем юзера в базу
     cursor.execute('''
         INSERT INTO users (chat_id, user_id, username, score, last_use)
         VALUES (?, ?, ?, ?, ?)
@@ -68,8 +67,6 @@ async def cmd_daily(message: types.Message):
 @dp.message(Command("top"))
 async def cmd_top(message: types.Message):
     chat_id = message.chat.id
-    
-    # Берем топ-10 игроков конкретно этого чата
     cursor.execute("SELECT username, score FROM users WHERE chat_id = ? ORDER BY score DESC LIMIT 10", (chat_id,))
     leaders = cursor.fetchall()
 
@@ -80,10 +77,8 @@ async def cmd_top(message: types.Message):
     text = "🏆 **ТОП СМ В ЭТОМ ЧАТЕ:**\n\n"
     for i, leader in enumerate(leaders, 1):
         text += f"{i}. {leader[0]} — {leader[1]} см\n"
-    
     await message.reply(text, parse_mode="Markdown")
 
-# КОМАНДА МАГАЗИНА
 @dp.message(Command("shop"))
 async def cmd_shop(message: types.Message):
     chat_id = message.chat.id
@@ -93,26 +88,34 @@ async def cmd_shop(message: types.Message):
     cursor.execute("SELECT score, last_use FROM users WHERE chat_id = ? AND user_id = ?", (chat_id, user_id))
     user = cursor.fetchone()
 
-    # Если юзера нет в базе или у него меньше 5 см
     if not user or user[0] < 5:
-        await message.reply("❌ У тебя не хватает см! Нужно минимум 5 см на балансе, чтобы купить доп. спин.")
+        await message.reply("❌ У тебя не хватает см! Нужно минимум 5 см на балансе.")
         return
 
-    # Проверяем, нужно ли вообще покупать (если он сегодня еще не крутил, то тратить см нет смысла)
     if user[1] != today:
-        await message.reply("❓ Ты сегодня еще даже не крутил бесплатный `/daily`! Сначала используй его.")
+        await message.reply("❓ Ты сегодня еще не крутил бесплатный `/daily`!")
         return
 
-    # Списываем 5 см и стираем дату последнего использования (last_use ставим пустым)
     new_score = user[0] - 5
-    cursor.execute('''
-        UPDATE users 
-        SET score = ?, last_use = "" 
-        WHERE chat_id = ? AND user_id = ?
-    ''', (new_score, chat_id, user_id))
+    cursor.execute('UPDATE users SET score = ?, last_use = "" WHERE chat_id = ? AND user_id = ?', (new_score, chat_id, user_id))
     conn.commit()
+    await message.reply(f"🛒 Успешная покупка! Списано 5 см (Осталось: {new_score} см).\n🔥 Пиши `/daily`!")
 
-    await message.reply(f"🛒 Успешная покупка! Списано 5 см (Осталось: {new_score} см).\n🔥 Твой ежедневный таймер сброшен, можешь снова писать `/daily`!")
+# ОБМАНКА ДЛЯ RENDER (Запуск мини-сайта)
+async def handle(request):
+    return web.Response(text="Bot is running!")
+
+async def main():
+    # Запускаем сайт на порту 10000, который требует Render
+    app = web.Application()
+    app.router.add_get('/', handle)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', 10000)
+    asyncio.create_task(site.start())
+    
+    # Запускаем бота
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    dp.run_polling(bot)
+    asyncio.run(main())
