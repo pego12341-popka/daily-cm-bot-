@@ -291,7 +291,32 @@ async def cmd_reset_user(message: types.Message):
     cursor.execute('UPDATE users SET score = 0 WHERE user_id = ?', (target[0],))
     conn.commit()
     save_db_to_github()
-    await message.reply(f"🔥 У @{target_username} теперь 0 см.")
+    await message.reply(f"🔥 У @{target_username} теперь 0 см.") 
+
+# 4. КОМАНДА /giveall (Раздать всем см в текущем чате)
+@dp.message(Command("giveall"))
+async def cmd_give_all(message: types.Message):
+    user_id = message.from_user.id
+    if user_id not in ADMIN_IDS or message.chat.type != "private":
+        return
+
+    args = message.text.split()
+    if len(args) < 2:
+        await message.reply("Формат: `/giveall <сколько_всем>`")
+        return
+
+    try:
+        amount = int(args[1])
+    except ValueError:
+        await message.reply("❌ Введи число!")
+        return
+
+    # Получаем список всех уникальных юзеров из базы
+    cursor.execute('UPDATE users SET score = score + ?', (amount,))
+    conn.commit()
+    save_db_to_github()
+    
+    await message.reply(f"✅ Успешно! Всем игрокам в базе начислено +{amount} см.")
 
 @dp.message(Command("mes"))
 async def cmd_send_message_menu(message: types.Message):
@@ -359,28 +384,3 @@ async def main():
 if __name__ == "__main__":
     asyncio.run(main())
  
-# 4. КОМАНДА /giveall (Раздать всем см в текущем чате)
-@dp.message(Command("giveall"))
-async def cmd_give_all(message: types.Message):
-    user_id = message.from_user.id
-    if user_id not in ADMIN_IDS or message.chat.type != "private":
-        return
-
-    args = message.text.split()
-    if len(args) < 2:
-        await message.reply("Формат: `/giveall <сколько_всем>`")
-        return
-
-    try:
-        amount = int(args[1])
-    except ValueError:
-        await message.reply("❌ Введи число!")
-        return
-
-    # Получаем список всех уникальных юзеров из базы
-    cursor.execute('UPDATE users SET score = score + ?', (amount,))
-    conn.commit()
-    save_db_to_github()
-    
-    await message.reply(f"✅ Успешно! Всем игрокам в базе начислено +{amount} см.")
-
