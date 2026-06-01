@@ -130,7 +130,7 @@ async def cmd_daily(message: types.Message):
     else:
         await message.reply(f"📉 Оу... у тебя убавилось: {cm} см. Всего: {new_score} см.")
 
-@@dp.message(Command("top"))
+@dp.message(Command("top"))
 async def cmd_top(message: types.Message):
     chat_id = message.chat.id
     cursor.execute("SELECT username, score FROM users WHERE chat_id = ? ORDER BY score DESC LIMIT 10", (chat_id,))
@@ -140,12 +140,14 @@ async def cmd_top(message: types.Message):
         await message.reply("Таблица лидеров пуста. Напишите /daily!")
         return
 
-    text = "🏆 **ТОП СМ В ЭТОМ ЧАТЕ:**\n\n"
+    # Убираем Markdown вообще, чтобы ничего не ломалось
+    text = "🏆 ТОП СМ В ЭТОМ ЧАТЕ:\n\n"
     for i, leader in enumerate(leaders, 1):
-        safe_name = str(leader[0]).replace("_", "\\_").replace("*", "\\*")
-        text += f"{i}. {safe_name} — {leader[1]} см\n"
+        # Просто выводим ник без спецсимволов
+        text += f"{i}. {leader[0]} — {leader[1]} см\n"
     
-    await message.reply(text, parse_mode="MarkdownV2")
+    await message.reply(text)
+
 
 
 @dp.message(Command("shop"))
