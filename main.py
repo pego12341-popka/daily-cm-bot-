@@ -130,7 +130,7 @@ async def cmd_daily(message: types.Message):
     else:
         await message.reply(f"📉 Оу... у тебя убавилось: {cm} см. Всего: {new_score} см.")
 
-@dp.message(Command("top"))
+@@dp.message(Command("top"))
 async def cmd_top(message: types.Message):
     chat_id = message.chat.id
     cursor.execute("SELECT username, score FROM users WHERE chat_id = ? ORDER BY score DESC LIMIT 10", (chat_id,))
@@ -142,8 +142,11 @@ async def cmd_top(message: types.Message):
 
     text = "🏆 **ТОП СМ В ЭТОМ ЧАТЕ:**\n\n"
     for i, leader in enumerate(leaders, 1):
-        text += f"{i}. {leader[0]} — {leader[1]} см\n"
-    await message.reply(text, parse_mode="Markdown")
+        safe_name = str(leader[0]).replace("_", "\\_").replace("*", "\\*")
+        text += f"{i}. {safe_name} — {leader[1]} см\n"
+    
+    await message.reply(text, parse_mode="MarkdownV2")
+
 
 @dp.message(Command("shop"))
 async def cmd_shop(message: types.Message):
